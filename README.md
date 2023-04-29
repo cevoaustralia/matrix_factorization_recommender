@@ -1,4 +1,4 @@
-# matrix_factorization_recommender
+# Matrix Factorization Recommender
 End to end ML recommender using Matrix Factorization
 
 #### To run:
