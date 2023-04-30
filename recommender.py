@@ -1,4 +1,3 @@
-import io
 import os
 from metaflow import FlowSpec, step
 
@@ -50,6 +49,13 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
 
         # # Define IAM role
         # self.role = os.environ["SAGEMAKER_EXECUTION_ROLE"]
+        assert os.environ["AWS_PROFILE"]
+        assert os.environ["AWS_REGION"]
+        assert os.environ["BUCKET_NAME"]
+
+        self.AWS_PROFILE = os.environ["AWS_PROFILE"]
+        self.AWS_REGION = os.environ["AWS_REGION"]
+        self.BUCKET_NAME = os.environ["BUCKET_NAME"]
 
         self.next(self.data_generation_users)
 
@@ -59,9 +65,28 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         Users Data Generation
         """
         import generators.UsersGenerator as users
+        import boto3
+        from os.path import exists
 
         usersGenerator = users.UsersGenerator()
         usersGenerator.generate()
+        bucket = self.BUCKET_NAME
+        users_filename = "users.csv"
+
+        # if exists(users_filename):
+        #     raise Exception("Users file does not exist")
+
+        session = boto3.Session(
+            profile_name=self.AWS_PROFILE, region_name=self.AWS_REGION
+        )
+
+        try:
+            os.chdir("./fake_data")
+            session.resource("s3").Bucket(bucket).Object(
+                f"fake_data/{users_filename}"
+            ).upload_file(users_filename)
+        except Exception as e:
+            print("Failed to upload to s3: " + str(e))
 
         self.next(self.data_generation_items)
 
