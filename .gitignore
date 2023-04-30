@@ -2,3 +2,4 @@
 *.csv
 .env
 *.gz
+/fake_data/*
