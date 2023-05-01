@@ -16,6 +16,15 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
     MatrixFactorizationRecommenderPipeline is an end-to-end flow for a Recommender using Matrix Factorization Algorithm
     """
 
+    def upload_to_s3(self, session, filename, bucket, folder="fake_data"):
+        try:
+            os.chdir(f"./{folder}")
+            session.resource("s3").Bucket(bucket).Object(
+                f"{folder}/{filename}"
+            ).upload_file(filename)
+        except Exception as e:
+            print("Failed to upload to s3: " + str(e))
+
     @step
     def start(self):
         """
@@ -72,11 +81,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
 
         usersGenerator = users.UsersGenerator()
         usersGenerator.generate()
-        bucket = self.BUCKET_NAME
         users_filename = "users.csv"
-
-        # if exists(users_filename):
-        #     raise Exception("Users file does not exist")
 
         session = boto3.Session(
             aws_access_key_id=self.AWS_ACCESS_KEY_ID,
@@ -84,13 +89,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             region_name=self.AWS_DEFAULT_REGION,
         )
 
-        try:
-            os.chdir("./fake_data")
-            session.resource("s3").Bucket(bucket).Object(
-                f"fake_data/{users_filename}"
-            ).upload_file(users_filename)
-        except Exception as e:
-            print("Failed to upload to s3: " + str(e))
+        self.upload_to_s3(session, users_filename, self.BUCKET_NAME)
 
         self.next(self.data_generation_items)
 
@@ -100,6 +99,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         Items Data Generation
         """
         import generators.ItemsGenerator as items
+        import boto3
 
         IN_PRODUCTS_FILENAME = "./generators/products.yaml"
         IN_USERS_FILENAMES = [
@@ -108,7 +108,8 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         ]
 
         # This is where stage.sh will pick them up from
-        out_items_filename = f"./fake_data/items.csv"
+        items_filename = "items.csv"
+        out_items_filename = f"./fake_data/{items_filename}"
         out_users_filename = f"./fake_data/users.csv"
 
         itemGenerator = items.ItemsGenerator(
@@ -119,6 +120,15 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         )
 
         self.users_df, self.products_df = itemGenerator.generate()
+
+        session = boto3.Session(
+            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
+            region_name=self.AWS_DEFAULT_REGION,
+        )
+
+        self.upload_to_s3(session, items_filename, self.BUCKET_NAME)
+
         self.next(self.data_generation_interactions)
 
     @step
@@ -127,14 +137,24 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         Interactions Data Generation
         """
         import generators.InteractionsGenerator as interactions
+        import boto3
 
-        # This is where stage.sh will pick them up from
-        self.out_interactions_filename = f"./fake_data/interactions.csv"
+        interactions_filename = "interactions.csv"
+        out_interactions_filename = f"./fake_data/{interactions_filename}"
 
         interactionsGenerator = interactions.InteractionsGenerator(
-            self.out_interactions_filename, self.users_df, self.products_df
+            out_interactions_filename, self.users_df, self.products_df
         )
         interactionsGenerator.generate()
+
+        session = boto3.Session(
+            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
+            region_name=self.AWS_DEFAULT_REGION,
+        )
+
+        self.upload_to_s3(session, interactions_filename, self.BUCKET_NAME)
+
         self.next(self.data_ingestion)
 
     @step
