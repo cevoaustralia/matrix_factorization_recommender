@@ -77,10 +77,11 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         """
         import generators.UsersGenerator as users
         import boto3
-        from os.path import exists
+        import time
 
         usersGenerator = users.UsersGenerator()
         usersGenerator.generate()
+        time.sleep(1)
         users_filename = "users.csv"
 
         session = boto3.Session(
