@@ -428,4 +428,4 @@ class InteractionsGenerator:
         globals().update(
             locals()
         )  # This can be used for inspecting in console after script ran or if run with ipython.
-        print(" ItemsGenerator Done")
+        print(" InteractionsGenerator Done")
