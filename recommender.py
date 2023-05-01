@@ -49,12 +49,14 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
 
         # # Define IAM role
         # self.role = os.environ["SAGEMAKER_EXECUTION_ROLE"]
-        assert os.environ["AWS_PROFILE"]
-        assert os.environ["AWS_REGION"]
+        assert os.environ["AWS_ACCESS_KEY_ID"]
+        assert os.environ["AWS_SECRET_ACCESS_KEY"]
+        assert os.environ["AWS_DEFAULT_REGION"]
         assert os.environ["BUCKET_NAME"]
 
-        self.AWS_PROFILE = os.environ["AWS_PROFILE"]
-        self.AWS_REGION = os.environ["AWS_REGION"]
+        self.AWS_ACCESS_KEY_ID = os.environ["AWS_ACCESS_KEY_ID"]
+        self.AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
+        self.AWS_DEFAULT_REGION = os.environ["AWS_DEFAULT_REGION"]
         self.BUCKET_NAME = os.environ["BUCKET_NAME"]
 
         self.next(self.data_generation_users)
@@ -77,7 +79,9 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         #     raise Exception("Users file does not exist")
 
         session = boto3.Session(
-            profile_name=self.AWS_PROFILE, region_name=self.AWS_REGION
+            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
+            region_name=self.AWS_DEFAULT_REGION,
         )
 
         try:
