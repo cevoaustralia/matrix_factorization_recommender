@@ -55,8 +55,7 @@ class InteractionsGenerator:
         # The meaning of the below constants is described in the relevant notebook.
 
         # Minimum number of interactions to generate
-        min_interactions = 90000
-        # min_interactions = 50000
+        min_interactions = 900000
 
         # Percentages of each event type to generate
         product_added_percent = 0.08

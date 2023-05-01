@@ -18,7 +18,7 @@ class UsersGenerator:
         random.seed(42)  # Deterministic randomness
         np.random.seed(42)  # Deterministic randomness
 
-        num_users = 1000
+        num_users = 10000
         num_cstore_users = int(num_users / 10)
         num_web_users = num_users - num_cstore_users
 
