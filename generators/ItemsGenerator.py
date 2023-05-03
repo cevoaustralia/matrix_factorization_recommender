@@ -1,3 +1,4 @@
+# pylint: disable=C0415,C0103
 class ItemsGenerator:
     def __init__(
         self,
