@@ -1,9 +1,13 @@
+# pylint: disable=C0415,C0103
 class UsersGenerator:
     def __init__(self, out_users_filename, in_users_filenames) -> None:
         self.out_users_filename = out_users_filename
         self.in_users_filenames = in_users_filenames
 
     def generate(self):
+        """
+        Users Data Generation
+        """
         import generators.datagenerator.users as users
         from generators.datagenerator.users import UserPool
         import numpy as np
@@ -22,7 +26,7 @@ class UsersGenerator:
         num_cstore_users = int(num_users / 10)
         num_web_users = num_users - num_cstore_users
 
-        print("Generating {} random web users...".format(num_web_users))
+        print(f"Generating {num_web_users} random web users...")
 
         pool = UserPool.new_file(
             "./fake_data/users.json.gz",
@@ -31,10 +35,10 @@ class UsersGenerator:
         )
         pool_check = UserPool.from_file("./fake_data/users.json.gz")
 
-        if pool.users.__repr__() != pool_check.users.__repr__():
+        if repr(pool.users) != repr(pool_check.users):
             raise ValueError("User generation: re-loading users alters something.")
 
-        print("Generating {} random c-store users...".format(num_cstore_users))
+        print(f"Generating {num_cstore_users} random c-store users...")
 
         cstore_pool = UserPool.new_file(
             "./fake_data/cstore_users.json.gz",
@@ -45,7 +49,7 @@ class UsersGenerator:
         )
         cstore_pool_check = UserPool.from_file("./fake_data/cstore_users.json.gz")
 
-        if cstore_pool.users.__repr__() != cstore_pool_check.users.__repr__():
+        if repr(cstore_pool.users) != repr(cstore_pool_check.users):
             raise ValueError("User generation: re-loading users alters something.")
 
         # User info is stored in the repository - it was automatically generated
