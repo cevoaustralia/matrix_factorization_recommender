@@ -207,6 +207,9 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         from scipy import sparse
         import implicit
         import pandas as pd
+        import pickle
+        from time import gmtime, strftime, sleep
+        import boto3
 
         grouped_df = pd.read_csv(
             f"./{self.FAKE_DATA_FOLDER}/interactions-confidence.csv"
@@ -227,6 +230,22 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         )
         alpha = 15
         model.fit((sparse_person_content * alpha).astype("double"))
+        MODELS_FOLDER = "models"
+        MODEL_PKL_FILENAME = (
+            f"mf-recommender-{strftime('%Y-%m-%d-%H-%M-%S', gmtime())}.pkl"
+        )
+        pickle.dump(model, open(f"./{MODELS_FOLDER}/{MODEL_PKL_FILENAME}", "wb"))
+        # sleep(3)
+
+        session = boto3.Session(
+            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
+            region_name=self.AWS_DEFAULT_REGION,
+        )
+
+        self.upload_to_s3(
+            session, MODEL_PKL_FILENAME, self.BUCKET_NAME, folder=MODELS_FOLDER
+        )
         print("Model Training...")
 
         self.next(self.create_sagemaker_model)

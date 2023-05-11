@@ -5,3 +5,4 @@
 /fake_data/*.csv
 /fake_data/*.gz
 .ipynb_checkpoints
+*.pkl
