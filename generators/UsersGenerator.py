@@ -22,18 +22,18 @@ class UsersGenerator:
         random.seed(42)  # Deterministic randomness
         np.random.seed(42)  # Deterministic randomness
 
-        num_users = 10000
+        num_users = 1000
         num_cstore_users = int(num_users / 10)
         num_web_users = num_users - num_cstore_users
 
         print(f"Generating {num_web_users} random web users...")
 
         pool = UserPool.new_file(
-            "./fake_data/users.json.gz",
+            self.in_users_filenames[0],
             num_web_users,
             category_preference_personas=users.category_preference_personas_web,
         )
-        pool_check = UserPool.from_file("./fake_data/users.json.gz")
+        pool_check = UserPool.from_file(self.in_users_filenames[0])
 
         if repr(pool.users) != repr(pool_check.users):
             raise ValueError("User generation: re-loading users alters something.")
@@ -41,13 +41,13 @@ class UsersGenerator:
         print(f"Generating {num_cstore_users} random c-store users...")
 
         cstore_pool = UserPool.new_file(
-            "./fake_data/cstore_users.json.gz",
+            self.in_users_filenames[1],
             num_cstore_users,
             category_preference_personas=users.category_preference_personas_cstore,
             selectable_user=False,
             start_user=num_web_users,
         )
-        cstore_pool_check = UserPool.from_file("./fake_data/cstore_users.json.gz")
+        cstore_pool_check = UserPool.from_file(self.in_users_filenames[1])
 
         if repr(cstore_pool.users) != repr(cstore_pool_check.users):
             raise ValueError("User generation: re-loading users alters something.")

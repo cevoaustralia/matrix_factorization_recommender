@@ -1,6 +1,7 @@
 # pylint: disable=C0415,C0103,W0201,W0702,W0718
 import os
 from metaflow import FlowSpec, step
+import random
 
 # import numpy as np
 
@@ -46,6 +47,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
         self.AWS_DEFAULT_REGION = os.environ["AWS_DEFAULT_REGION"]
         self.BUCKET_NAME = os.environ["BUCKET_NAME"]
+        self.FAKE_DATA_FOLDER = "fake_data"
 
         self.next(self.data_generation_users, self.data_generation_items)
 
@@ -57,10 +59,10 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         import generators.UsersGenerator as users
         import boto3
 
-        OUT_USERS_FILENAME = "./fake_data/users.csv"
+        OUT_USERS_FILENAME = f"./{self.FAKE_DATA_FOLDER}/users.csv"
         IN_USERS_FILENAMES = [
-            "./fake_data/users.json.gz",
-            "./fake_data/cstore_users.json.gz",
+            f"./{self.FAKE_DATA_FOLDER}/users.json.gz",
+            f"./{self.FAKE_DATA_FOLDER}/cstore_users.json.gz",
         ]
         usersGenerator = users.UsersGenerator(OUT_USERS_FILENAME, IN_USERS_FILENAMES)
         self.users_df = usersGenerator.generate()
@@ -88,7 +90,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
 
         # This is where stage.sh will pick them up from
         ITEMS_FILENAME = "items.csv"
-        OUT_ITEMS_FILENAME = f"./fake_data/{ITEMS_FILENAME}"
+        OUT_ITEMS_FILENAME = f"./{self.FAKE_DATA_FOLDER}/{ITEMS_FILENAME}"
 
         itemGenerator = items.ItemsGenerator(
             OUT_ITEMS_FILENAME,
@@ -119,7 +121,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
 
         self.merge_artifacts(inputs)  # Merge artifacts from previous steps
         INTERACTIONS_FILENAME = "interactions.csv"
-        OUT_INTERACTIONS_FILENAME = f"./fake_data/{INTERACTIONS_FILENAME}"
+        OUT_INTERACTIONS_FILENAME = f"./{self.FAKE_DATA_FOLDER}/{INTERACTIONS_FILENAME}"
 
         interactionsGenerator = interactions.InteractionsGenerator(
             OUT_INTERACTIONS_FILENAME,
@@ -137,36 +139,63 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.upload_to_s3(session, INTERACTIONS_FILENAME, self.BUCKET_NAME)
         print("Interactions Data Generation...")
 
-        self.next(self.data_ingestion)
-
-    # @step
-    def join(self, inputs):
-        print(inputs.data_generation_users.users_df.describe())
-        print(inputs.data_generation_items.products_df.describe())
-
-        self.next(self.data_ingestion)
+        self.next(self.data_transformation)
 
     @step
-    def data_ingestion(self):
+    def data_transformation(self):
         """
-        Data Ingestion
+        Data Transformation
         """
+        import pandas as pd
+        import boto3
 
-        self.next(self.data_conversion)
+        df = pd.read_csv(f"./{self.FAKE_DATA_FOLDER}/interactions.csv")
+        df_items = pd.read_csv(f"./{self.FAKE_DATA_FOLDER}/items.csv")
 
-    @step
-    def data_conversion(self):
-        """
-        Data Conversion
-        """
+        # drop columns which we don't need
+        df = df.drop(["TIMESTAMP", "DISCOUNT"], axis=1)
 
-        self.next(self.upload_training_data)
+        # add confidence scores
+        event_type_confidence = {
+            "View": 1.0,
+            "AddToCart": 2.0,
+            "ViewCart": 3.0,
+            "StartCheckout": 4.0,
+            "Purchase": 5.0,
+        }
 
-    @step
-    def upload_training_data(self):
-        """
-        Upload Training Data
-        """
+        # add confidence scores based on the event type defeind above
+        df["CONFIDENCE"] = df["EVENT_TYPE"].apply(lambda x: event_type_confidence[x])
+
+        # this removes duplicates and adds up the confidence => down lower number of unique user-item interactions + confidence
+        grouped_df = df.groupby(["ITEM_ID", "USER_ID"]).sum("CONFIDENCE").reset_index()
+        grouped_df = grouped_df[
+            ["USER_ID", "ITEM_ID", "CONFIDENCE"]
+        ]  # re-order columns
+
+        # prepare for training
+        grouped_df["USER_ID"] = grouped_df["USER_ID"].astype("category")
+        grouped_df["ITEM_ID"] = grouped_df["ITEM_ID"].astype("category")
+        print(f"Number of unique users: {grouped_df['USER_ID'].nunique()}")
+        print(f"Number of unique items: {grouped_df.ITEM_ID.nunique()}")
+        grouped_df["USER_IDX"] = grouped_df["USER_ID"].cat.codes
+        grouped_df["ITEM_IDX"] = grouped_df["ITEM_ID"].cat.codes
+        print(f"Min value user index: {grouped_df['USER_IDX'].min()}")
+        print(f"Max value user index: {grouped_df['USER_IDX'].max()}")
+        print(f"Min value item index: {grouped_df['ITEM_IDX'].min()}")
+        print(f"Max value item index: {grouped_df['ITEM_IDX'].max()}")
+        IF_BASEFILENAME = "interactions-confidence.csv"
+        INTER_CONFIDENCE_FILENAME = f"./{self.FAKE_DATA_FOLDER}/{IF_BASEFILENAME}"
+        grouped_df.to_csv(INTER_CONFIDENCE_FILENAME, index=False)
+
+        session = boto3.Session(
+            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
+            region_name=self.AWS_DEFAULT_REGION,
+        )
+
+        self.upload_to_s3(session, IF_BASEFILENAME, self.BUCKET_NAME)
+        print("Data Transformation...")
 
         self.next(self.model_training)
 
@@ -175,6 +204,32 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         """
         Model training
         """
+        from scipy import sparse
+        import implicit
+        import pandas as pd
+
+        grouped_df = pd.read_csv(
+            f"./{self.FAKE_DATA_FOLDER}/interactions-confidence.csv"
+        )
+
+        # create the sparse user-item matrix for the implicit library
+        sparse_person_content = sparse.csr_matrix(
+            (
+                grouped_df["CONFIDENCE"].astype(float),
+                (grouped_df["USER_IDX"], grouped_df["ITEM_IDX"]),
+            )
+        )
+        print(sparse_person_content.shape)
+
+        # todo: add hyperparameter tuning for alpha, factors, regularization, iterations
+        alpha = 15
+        model = implicit.als.AlternatingLeastSquares(
+            alpha=alpha, factors=20, regularization=0.1, iterations=50
+        )
+        data = (sparse_person_content).astype("double")
+        # trining time
+        model.fit(data)
+        print("Model Training...")
 
         self.next(self.create_sagemaker_model)
 
