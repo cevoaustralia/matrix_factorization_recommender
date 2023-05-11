@@ -1,8 +1,9 @@
 # pylint: disable=C0415,C0103
 class UsersGenerator:
-    def __init__(self, out_users_filename, in_users_filenames) -> None:
+    def __init__(self, out_users_filename, in_users_filenames, user_count) -> None:
         self.out_users_filename = out_users_filename
         self.in_users_filenames = in_users_filenames
+        self.user_count = user_count
 
     def generate(self):
         """
@@ -22,7 +23,7 @@ class UsersGenerator:
         random.seed(42)  # Deterministic randomness
         np.random.seed(42)  # Deterministic randomness
 
-        num_users = 10000
+        num_users = self.user_count
         num_cstore_users = int(num_users / 10)
         num_web_users = num_users - num_cstore_users
 

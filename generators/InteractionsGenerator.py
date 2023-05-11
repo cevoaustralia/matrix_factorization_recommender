@@ -1,14 +1,12 @@
 # pylint: disable=C0415,C0103
 class InteractionsGenerator:
     def __init__(
-        self,
-        out_interactions_filename,
-        users_df,
-        products_df,
+        self, out_interactions_filename, users_df, products_df, interaction_count
     ) -> None:
         self.out_interactions_filename = out_interactions_filename
         self.users_df = users_df
         self.products_df = products_df
+        self.interaction_count = interaction_count
 
     def generate(self):
         """Generate items.csv, users.csv from users and product dataframes makes interactions.csv by simulating some
@@ -56,7 +54,7 @@ class InteractionsGenerator:
         # The meaning of the below constants is described in the relevant notebook.
 
         # Minimum number of interactions to generate
-        min_interactions = 900000
+        min_interactions = self.interaction_count
 
         # Percentages of each event type to generate
         product_added_percent = 0.08

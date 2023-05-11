@@ -48,6 +48,8 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.AWS_DEFAULT_REGION = os.environ["AWS_DEFAULT_REGION"]
         self.BUCKET_NAME = os.environ["BUCKET_NAME"]
         self.FAKE_DATA_FOLDER = "fake_data"
+        self.USER_COUNT = 1000  # change to required count
+        self.INTERACTION_COUNT = 90000  # change to required count
 
         self.next(self.data_generation_users, self.data_generation_items)
 
@@ -64,7 +66,9 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             f"./{self.FAKE_DATA_FOLDER}/users.json.gz",
             f"./{self.FAKE_DATA_FOLDER}/cstore_users.json.gz",
         ]
-        usersGenerator = users.UsersGenerator(OUT_USERS_FILENAME, IN_USERS_FILENAMES)
+        usersGenerator = users.UsersGenerator(
+            OUT_USERS_FILENAME, IN_USERS_FILENAMES, self.USER_COUNT
+        )
         self.users_df = usersGenerator.generate()
         users_filename = "users.csv"
 
@@ -127,6 +131,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             OUT_INTERACTIONS_FILENAME,
             self.users_df,
             self.products_df,
+            self.INTERACTION_COUNT,
         )
         interactionsGenerator.generate()
 
