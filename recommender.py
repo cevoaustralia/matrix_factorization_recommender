@@ -213,7 +213,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         import implicit
         import pandas as pd
         import pickle
-        from time import gmtime, strftime, sleep
+        from time import gmtime, strftime
         import boto3
 
         grouped_df = pd.read_csv(
@@ -240,7 +240,6 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             f"mf-recommender-{strftime('%Y-%m-%d-%H-%M-%S', gmtime())}.pkl"
         )
         pickle.dump(model, open(f"./{MODELS_FOLDER}/{MODEL_PKL_FILENAME}", "wb"))
-        # sleep(3)
 
         session = boto3.Session(
             aws_access_key_id=self.AWS_ACCESS_KEY_ID,
