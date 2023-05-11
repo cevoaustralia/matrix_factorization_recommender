@@ -222,13 +222,11 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         print(sparse_person_content.shape)
 
         # todo: add hyperparameter tuning for alpha, factors, regularization, iterations
-        alpha = 15
         model = implicit.als.AlternatingLeastSquares(
-            alpha=alpha, factors=20, regularization=0.1, iterations=50
+            factors=20, regularization=0.1, iterations=50
         )
-        data = (sparse_person_content).astype("double")
-        # trining time
-        model.fit(data)
+        alpha = 15
+        model.fit((sparse_person_content * alpha).astype("double"))
         print("Model Training...")
 
         self.next(self.create_sagemaker_model)
