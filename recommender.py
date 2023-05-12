@@ -49,7 +49,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.BUCKET_NAME = os.environ["BUCKET_NAME"]
         self.FAKE_DATA_FOLDER = "fake_data"
         self.USER_COUNT = 1000  # change to required count
-        self.INTERACTION_COUNT = 90000  # change to required count
+        self.INTERACTION_COUNT = 500000  # change to required count
 
         self.next(self.data_generation_users, self.data_generation_items)
 
@@ -231,7 +231,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
 
         # todo: add hyperparameter tuning for alpha, factors, regularization, iterations
         model = implicit.als.AlternatingLeastSquares(
-            factors=20, regularization=0.1, iterations=50
+            factors=20, regularization=0.1, iterations=100
         )
         alpha = 15
         model.fit((sparse_person_content * alpha).astype("double"))
