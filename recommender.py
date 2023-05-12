@@ -2,8 +2,7 @@
 import os
 from metaflow import FlowSpec, step
 import random
-
-# import numpy as np
+import numpy as np
 
 try:
     from dotenv import load_dotenv
@@ -31,6 +30,102 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         except Exception as e_xc:
             print("Failed to upload to s3: " + str(e_xc))
 
+    def make_train_test_split(self, sparse_matrix, pct_test=0.2):
+        """
+        Create the train-test split in preparation for model training and evaluation
+            - sparse_matrix: our original sparse user-item matrix
+            - pct_test: the percentage of randomly chosen user-item interactions to mask in the training set
+                this defaults to 20 percent of the sparse matrix
+        """
+        test_set = (
+            sparse_matrix.copy()
+        )  # Make a copy of the original set to be the test set.
+        # test_set[test_set != 0] = 1  # Store the test set as a binary preference matrix
+        training_set = (
+            sparse_matrix.copy()
+        )  # Make a copy of the original data we can alter as our training set.
+        nonzero_inds = (
+            training_set.nonzero()
+        )  # Find the indices in the ratings data where an interaction exists
+        nonzero_pairs = list(
+            zip(nonzero_inds[0], nonzero_inds[1])
+        )  # Zip these pairs together of user,item index into list
+        random.seed(42)  # Set the random seed to zero for reproducibility
+        num_samples = int(
+            np.ceil(pct_test * len(nonzero_pairs))
+        )  # Round the number of samples needed to the nearest integer
+        print(f"Number of samples: {num_samples}")
+        samples = random.sample(
+            nonzero_pairs, num_samples
+        )  # Sample a random number of user-item pairs without replacement
+        print(f"Length nonzero pairs: {len(nonzero_pairs)}")
+        print(f"Length samples: {len(samples)}")
+        print(f"user-item masked samples (first 20 samples): {samples[0:20]}")
+        user_inds = [index[0] for index in samples]  # Get the user row indices
+        item_inds = [index[1] for index in samples]  # Get the item column indices
+        print(f"Length user index samples: {len(user_inds)}")
+        print(f"Length item index samples: {len(item_inds)}")
+        training_set[
+            user_inds, item_inds
+        ] = 0  # Assign all of the randomly chosen user-item pairs to zero
+        training_set.eliminate_zeros()  # Get rid of zeros in sparse array storage after update to save space
+        return (
+            training_set,
+            test_set,
+            list(set(item_inds)),
+        )  # Output the unique list of item indices which were altered
+
+    def average_reciprocal_hit_rank(self, train_set_predictions, test_set_predictions):
+        """
+        Calcluate the Average Reciprocal Hit Rank
+        by comparing the top 20 predictions from both the
+        training set and the test set. The training set contains the
+        masked out items using function make_train_test
+        """
+        summation = 0
+        total = 0
+        # For each left-out rating
+        for test_set_item_id in test_set_predictions:
+            # Is it in the predicted top N for this user?
+            hitRank = 0
+            rank = 0
+            for train_set_item_id in train_set_predictions:
+                rank = rank + 1
+                if test_set_item_id == train_set_item_id:
+                    hitRank = rank
+                    break
+            if hitRank > 0:
+                summation += 1.0 / hitRank
+
+            total += 1
+
+        return round(summation / total, 5)
+
+    # print(
+    #     "Average Reciprocal Hit Rank: ",
+    #     average_reciprocal_hit_rank(train_set_predictions, test_set_predictions),
+    # )
+
+    # print(
+    #     "Average Reciprocal Hit Rank (Popular Items): ",
+    #     average_reciprocal_hit_rank(train_set_predictions, top_ten_popular_items),
+    #     )
+
+    def get_popular_items(self, grouped_df, df_items, N=20):
+        """
+        Get popular items (to use as baseline)
+        """
+        popular_items = grouped_df.ITEM_ID.value_counts(sort=True).keys()[:N]
+        top_N_popular_items = []
+        for item in popular_items:
+            item_desc = df_items.PRODUCT_DESCRIPTION.loc[df_items.ITEM_ID == item].iloc[
+                0
+            ]
+            item_index = grouped_df.ITEM_IDX.loc[grouped_df.ITEM_ID == item].iloc[0]
+            print(f"Item ID: {item}, Desc: {item_desc}")
+            top_N_popular_items.append(item_index)
+        return top_N_popular_items
+
     @step
     def start(self):
         """
@@ -49,7 +144,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.BUCKET_NAME = os.environ["BUCKET_NAME"]
         self.FAKE_DATA_FOLDER = "fake_data"
         self.USER_COUNT = 1000  # change to required count
-        self.INTERACTION_COUNT = 500000  # change to required count
+        self.INTERACTION_COUNT = 50000  # change to required count
 
         self.next(self.data_generation_users, self.data_generation_items)
 
@@ -229,17 +324,38 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         )
         print(sparse_person_content.shape)
 
+        (
+            self.training_set,
+            self.test_set,
+            self.product_users_altered,
+        ) = self.make_train_test_split(sparse_person_content)
+
         # todo: add hyperparameter tuning for alpha, factors, regularization, iterations
-        model = implicit.als.AlternatingLeastSquares(
-            factors=20, regularization=0.1, iterations=100
-        )
         alpha = 15
-        model.fit((sparse_person_content * alpha).astype("double"))
+        factors = 20
+        regularization = 0.1
+        iterations = 100
+
+        # do the training set first (with the masked items)
+        training_model = implicit.als.AlternatingLeastSquares(
+            factors=factors, regularization=regularization, iterations=iterations
+        )
+        training_model.fit((self.training_set * alpha).astype("double"))
+
+        # then do the test set (without the masked items)
+        testing_model = implicit.als.AlternatingLeastSquares(
+            factors=factors, regularization=regularization, iterations=iterations
+        )
+        testing_model.fit((self.test_set * alpha).astype("double"))
+
         MODELS_FOLDER = "models"
         MODEL_PKL_FILENAME = (
             f"mf-recommender-{strftime('%Y-%m-%d-%H-%M-%S', gmtime())}.pkl"
         )
-        pickle.dump(model, open(f"./{MODELS_FOLDER}/{MODEL_PKL_FILENAME}", "wb"))
+        # only save the training model, don't bother with the testing model as that is just for evaluation
+        pickle.dump(
+            training_model, open(f"./{MODELS_FOLDER}/{MODEL_PKL_FILENAME}", "wb")
+        )
 
         session = boto3.Session(
             aws_access_key_id=self.AWS_ACCESS_KEY_ID,
