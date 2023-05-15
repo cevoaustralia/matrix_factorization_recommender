@@ -1,8 +1,9 @@
 # pylint: disable=C0415,C0103,W0201,W0702,W0718
 import os
-from metaflow import FlowSpec, step
+from metaflow import FlowSpec, step, Parameter
 import random
 import numpy as np
+import json
 
 try:
     from dotenv import load_dotenv
@@ -53,16 +54,16 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         num_samples = int(
             np.ceil(pct_test * len(nonzero_pairs))
         )  # Round the number of samples needed to the nearest integer
-        print(f"Number of samples: {num_samples}")
+        # print(f"Number of samples: {num_samples}")
         samples = random.sample(
             nonzero_pairs, num_samples
         )  # Sample a random number of user-item pairs without replacement
-        print(f"Length nonzero pairs: {len(nonzero_pairs)}")
-        print(f"Length samples: {len(samples)}")
+        # print(f"Length nonzero pairs: {len(nonzero_pairs)}")
+        # print(f"Length samples: {len(samples)}")
         user_inds = [index[0] for index in samples]  # Get the user row indices
         item_inds = [index[1] for index in samples]  # Get the item column indices
-        print(f"Length user index samples: {len(user_inds)}")
-        print(f"Length item index samples: {len(item_inds)}")
+        # print(f"Length user index samples: {len(user_inds)}")
+        # print(f"Length item index samples: {len(item_inds)}")
         training_set[
             user_inds, item_inds
         ] = 0  # Assign all of the randomly chosen user-item pairs to zero
@@ -254,6 +255,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         """
         import pandas as pd
         import boto3
+        import itertools
 
         df = pd.read_csv(f"./{self.FAKE_DATA_FOLDER}/interactions.csv")
         df_items = pd.read_csv(f"./{self.FAKE_DATA_FOLDER}/items.csv")
@@ -305,7 +307,27 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.upload_to_s3(session, IF_BASEFILENAME, self.BUCKET_NAME)
         print("Data Transformation...")
 
-        self.next(self.model_training)
+        # sets of hyperparameters to try
+        alphas = [5, 15, 30]
+        factors = [10, 20]
+        regularizations = [0.01, 0.1]
+        iterations = [100, 200]
+        grid_search = []
+        for params in itertools.product(alphas, factors, regularizations, iterations):
+            grid_search.append(
+                {
+                    "ALPHA": params[0],
+                    "FACTOR": params[1],
+                    "REGULARIZATION": params[2],
+                    "ITERATIONS": params[3],
+                }
+            )
+        # we serialize hypers to a string and pass them to the foreach below
+        self.hypers_sets = [json.dumps(_) for _ in grid_search]
+        # debug
+        # print(self.hypers_sets)
+
+        self.next(self.model_training, foreach="hypers_sets")
 
     @step
     def model_training(self):
@@ -315,9 +337,12 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         from scipy import sparse
         import implicit
         import pandas as pd
-        import pickle
-        from time import gmtime, strftime
-        import boto3
+
+        # this is the CURRENT hyper param JSON in the fan-out
+        # each copy of this step in the parallelization will have its own value
+        self.hyper_string = self.input
+        self.hypers = json.loads(self.hyper_string)
+        # print(f"Current hyper params: {self.hypers}")
 
         grouped_df = pd.read_csv(
             f"./{self.FAKE_DATA_FOLDER}/interactions-confidence.csv"
@@ -330,7 +355,6 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
                 (grouped_df["USER_IDX"], grouped_df["ITEM_IDX"]),
             )
         )
-        print(sparse_person_content.shape)
 
         (
             self.training_set,
@@ -339,10 +363,10 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         ) = self.make_train_test_split(sparse_person_content)
 
         # todo: add hyperparameter tuning for alpha, factors, regularization, iterations
-        alpha = 15
-        factors = 20
-        regularization = 0.1
-        iterations = 100
+        alpha = self.hypers["ALPHA"]
+        factors = self.hypers["FACTOR"]
+        regularization = self.hypers["REGULARIZATION"]
+        iterations = self.hypers["ITERATIONS"]
 
         # do the training set first (with the masked items)
         training_model = implicit.als.AlternatingLeastSquares(
@@ -382,14 +406,48 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         print(
             f"For top K({len(user_indices)}) recommendations, the average precision (popular items recsys)       : {np.average(precision_records_popular)}"
         )
+        self.metrics = np.average(precision_records)
+
+        self.training_models = training_model
+
+        print("Model Training...")
+
+        self.next(self.join_runs)
+
+    @step
+    def join_runs(self, inputs):
+        """
+        Join the parallel runs
+        """
+        import pickle
+        from time import gmtime, strftime
+        import boto3
+
+        print("Joining the parallel runs...")
+        self.results_from_runs = {
+            inp.hyper_string: [inp.metrics, inp.training_models] for inp in inputs
+        }
+        # print(f"Current results: {self.results_from_runs.items()}")
+        self.best_hypers = sorted(
+            self.results_from_runs.items(), key=lambda x: x[1], reverse=True
+        )[0]
+        self.best_selected_model = self.best_hypers[1][1]
+        self.best_selected_hypers = self.best_hypers[0]
+        self.best_selected_metric = self.best_hypers[1][0]
+        print(f"Best hyperparameters are: {self.best_selected_hypers}")
+        print(f"\n\n====>Best metric is: {self.best_selected_metric}\n\n")
+
         MODELS_FOLDER = "models"
         MODEL_PKL_FILENAME = (
             f"mf-recommender-{strftime('%Y-%m-%d-%H-%M-%S', gmtime())}.pkl"
         )
         # only save the training model, don't bother with the testing model as that is just for evaluation
         pickle.dump(
-            training_model, open(f"./{MODELS_FOLDER}/{MODEL_PKL_FILENAME}", "wb")
+            self.best_selected_model,
+            open(f"./{MODELS_FOLDER}/{MODEL_PKL_FILENAME}", "wb"),
         )
+
+        self.merge_artifacts(inputs)  # Merge artifacts from previous steps
 
         session = boto3.Session(
             aws_access_key_id=self.AWS_ACCESS_KEY_ID,
@@ -400,7 +458,6 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.upload_to_s3(
             session, MODEL_PKL_FILENAME, self.BUCKET_NAME, folder=MODELS_FOLDER
         )
-        print("Model Training...")
 
         self.next(self.create_sagemaker_model)
 
