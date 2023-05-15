@@ -308,10 +308,10 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         print("Data Transformation...")
 
         # sets of hyperparameters to try
-        alphas = [30, 50]
-        factors = [10, 20]
+        alphas = [40, 50]
+        factors = [30, 40]
         regularizations = [0.01, 0.1]
-        iterations = [150, 200]
+        iterations = [100, 150]
         grid_search = []
         for params in itertools.product(alphas, factors, regularizations, iterations):
             grid_search.append(
@@ -358,7 +358,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         factors = self.hypers["FACTOR"]
         regularization = self.hypers["REGULARIZATION"]
         iterations = self.hypers["ITERATIONS"]
-        print(f"Training hypers: {self.hypers}")
+
         # do the training set first (with the masked items)
         training_model = implicit.als.AlternatingLeastSquares(
             factors=factors, regularization=regularization, iterations=iterations
@@ -378,6 +378,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         precision_records = []
         precision_records_popular = []
 
+        print(f"Model training hypers: {self.hypers}")
         for user_index in user_indices:
             train_set_predictions = self.call_recommend(
                 training_model, self.training_set, user_index
