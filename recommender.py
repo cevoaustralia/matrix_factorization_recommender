@@ -309,7 +309,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
 
         # sets of hyperparameters to try
         alphas = [40, 50]
-        factors = [70, 80]
+        factors = [70, 100]
         regularizations = [0.01, 0.1]
         iterations = [100, 150]
         grid_search = []
