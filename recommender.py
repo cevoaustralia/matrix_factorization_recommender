@@ -309,9 +309,9 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
 
         # sets of hyperparameters to try
         alphas = [5, 15, 30]
-        factors = [10, 20]
-        regularizations = [0.01, 0.1]
-        iterations = [100, 200]
+        factors = [10, 20, 30]
+        regularizations = [0.01, 0.1, 1]
+        iterations = [200, 500, 1000]
         grid_search = []
         for params in itertools.product(alphas, factors, regularizations, iterations):
             grid_search.append(
@@ -372,13 +372,15 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         training_model = implicit.als.AlternatingLeastSquares(
             factors=factors, regularization=regularization, iterations=iterations
         )
-        training_model.fit((self.training_set * alpha).astype("double"))
+        training_model.fit(
+            (self.training_set * alpha).astype("double"), show_progress=False
+        )
 
         # then do the test set (without the masked items)
         testing_model = implicit.als.AlternatingLeastSquares(
             factors=factors, regularization=regularization, iterations=iterations
         )
-        testing_model.fit((self.test_set * alpha).astype("double"))
+        testing_model.fit((self.test_set * alpha).astype("double"), show_progress=False)
         user_indices = self.product_users_altered[:20]
         top_n_popular_items = self.get_popular_items()
         precision_records = []
@@ -447,16 +449,14 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             open(f"./{MODELS_FOLDER}/{MODEL_PKL_FILENAME}", "wb"),
         )
 
-        self.merge_artifacts(inputs)  # Merge artifacts from previous steps
-
         session = boto3.Session(
-            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
-            region_name=self.AWS_DEFAULT_REGION,
+            aws_access_key_id=inputs[0].AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=inputs[0].AWS_SECRET_ACCESS_KEY,
+            region_name=inputs[0].AWS_DEFAULT_REGION,
         )
 
         self.upload_to_s3(
-            session, MODEL_PKL_FILENAME, self.BUCKET_NAME, folder=MODELS_FOLDER
+            session, MODEL_PKL_FILENAME, inputs[0].BUCKET_NAME, folder=MODELS_FOLDER
         )
 
         self.next(self.create_sagemaker_model)
