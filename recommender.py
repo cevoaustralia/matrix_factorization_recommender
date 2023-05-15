@@ -308,8 +308,8 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         print("Data Transformation...")
 
         # sets of hyperparameters to try
-        alphas = [40, 50]
-        factors = [70, 100]
+        alphas = [50, 60]
+        factors = [100, 200]
         regularizations = [0.01, 0.1]
         iterations = [100, 150]
         grid_search = []
