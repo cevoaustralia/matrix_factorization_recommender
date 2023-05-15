@@ -308,10 +308,10 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         print("Data Transformation...")
 
         # sets of hyperparameters to try
-        alphas = [15, 30]
+        alphas = [30, 50]
         factors = [10, 20]
         regularizations = [0.01, 0.1]
-        iterations = [100, 150]
+        iterations = [150, 200]
         grid_search = []
         for params in itertools.product(alphas, factors, regularizations, iterations):
             grid_search.append(
@@ -324,9 +324,6 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             )
         # we serialize hypers to a string and pass them to the foreach below
         self.hypers_sets = [json.dumps(_) for _ in grid_search]
-        # debug
-        # print(self.hypers_sets)
-
         self.next(self.model_training, foreach="hypers_sets")
 
     @step
@@ -336,23 +333,17 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         """
         from scipy import sparse
         import implicit
-        import pandas as pd
 
         # this is the CURRENT hyper param JSON in the fan-out
         # each copy of this step in the parallelization will have its own value
         self.hyper_string = self.input
         self.hypers = json.loads(self.hyper_string)
-        # print(f"Current hyper params: {self.hypers}")
-
-        grouped_df = pd.read_csv(
-            f"./{self.FAKE_DATA_FOLDER}/interactions-confidence.csv"
-        )
 
         # create the sparse user-item matrix for the implicit library
         sparse_person_content = sparse.csr_matrix(
             (
-                grouped_df["CONFIDENCE"].astype(float),
-                (grouped_df["USER_IDX"], grouped_df["ITEM_IDX"]),
+                self.grouped_df["CONFIDENCE"].astype(float),
+                (self.grouped_df["USER_IDX"], self.grouped_df["ITEM_IDX"]),
             )
         )
 
@@ -367,7 +358,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         factors = self.hypers["FACTOR"]
         regularization = self.hypers["REGULARIZATION"]
         iterations = self.hypers["ITERATIONS"]
-
+        print(f"Training hypers: {self.hypers}")
         # do the training set first (with the masked items)
         training_model = implicit.als.AlternatingLeastSquares(
             factors=factors, regularization=regularization, iterations=iterations
@@ -381,6 +372,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             factors=factors, regularization=regularization, iterations=iterations
         )
         testing_model.fit((self.test_set * alpha).astype("double"), show_progress=False)
+
         user_indices = self.product_users_altered[:20]
         top_n_popular_items = self.get_popular_items()
         precision_records = []
@@ -409,11 +401,8 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             f"For top K({len(user_indices)}) recommendations, the average precision (popular items recsys)       : {np.average(precision_records_popular)}"
         )
         self.metrics = np.average(precision_records)
-
         self.training_models = training_model
-
         print("Model Training...")
-
         self.next(self.join_runs)
 
     @step
@@ -429,15 +418,19 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.results_from_runs = {
             inp.hyper_string: [inp.metrics, inp.training_models] for inp in inputs
         }
-        # print(f"Current results: {self.results_from_runs.items()}")
         self.best_hypers = sorted(
             self.results_from_runs.items(), key=lambda x: x[1], reverse=True
         )[0]
-        self.best_selected_model = self.best_hypers[1][1]
-        self.best_selected_hypers = self.best_hypers[0]
-        self.best_selected_metric = self.best_hypers[1][0]
+
+        METRIC_IDX = 0
+        MODEL_IDX = 1
+        KEY_IDX = 0
+        VALUES_IDX = 1
+        self.best_selected_hypers = self.best_hypers[KEY_IDX]
+        self.best_selected_model = self.best_hypers[VALUES_IDX][MODEL_IDX]
+        self.best_selected_metric = self.best_hypers[VALUES_IDX][METRIC_IDX]
         print(f"Best hyperparameters are: {self.best_selected_hypers}")
-        print(f"\n\n====>Best metric is: {self.best_selected_metric}\n\n")
+        print(f"\n\n====> Best metric is: {self.best_selected_metric}\n\n")
 
         MODELS_FOLDER = "models"
         MODEL_PKL_FILENAME = (
