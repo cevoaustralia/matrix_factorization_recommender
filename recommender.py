@@ -40,7 +40,6 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         test_set = (
             sparse_matrix.copy()
         )  # Make a copy of the original set to be the test set.
-        # test_set[test_set != 0] = 1  # Store the test set as a binary preference matrix
         training_set = (
             sparse_matrix.copy()
         )  # Make a copy of the original data we can alter as our training set.
@@ -60,7 +59,6 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         )  # Sample a random number of user-item pairs without replacement
         print(f"Length nonzero pairs: {len(nonzero_pairs)}")
         print(f"Length samples: {len(samples)}")
-        print(f"user-item masked samples (first 20 samples): {samples[0:20]}")
         user_inds = [index[0] for index in samples]  # Get the user row indices
         item_inds = [index[1] for index in samples]  # Get the item column indices
         print(f"Length user index samples: {len(user_inds)}")
@@ -72,57 +70,63 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         return (
             training_set,
             test_set,
-            list(set(item_inds)),
-        )  # Output the unique list of item indices which were altered
+            user_inds,
+        )  # Output the unique list of user indices which were altered
 
-    def average_reciprocal_hit_rank(self, train_set_predictions, test_set_predictions):
+    def average_precision_at_k(self, y_true, y_pred, k_max=0):
         """
-        Calcluate the Average Reciprocal Hit Rank
-        by comparing the top 20 predictions from both the
-        training set and the test set. The training set contains the
-        masked out items using function make_train_test
+        Average Precision at k calculation
         """
-        summation = 0
-        total = 0
-        # For each left-out rating
-        for test_set_item_id in test_set_predictions:
-            # Is it in the predicted top N for this user?
-            hitRank = 0
-            rank = 0
-            for train_set_item_id in train_set_predictions:
-                rank = rank + 1
-                if test_set_item_id == train_set_item_id:
-                    hitRank = rank
-                    break
-            if hitRank > 0:
-                summation += 1.0 / hitRank
+        # Check if all elements in lists are unique
+        if len(set(y_true)) != len(y_true):
+            raise ValueError("Values in y_true are not unique")
 
-            total += 1
+        if len(set(y_pred)) != len(y_pred):
+            raise ValueError("Values in y_pred are not unique")
 
-        return round(summation / total, 5)
+        if k_max != 0:
+            y_pred = y_pred[:k_max]
 
-    # print(
-    #     "Average Reciprocal Hit Rank: ",
-    #     average_reciprocal_hit_rank(train_set_predictions, test_set_predictions),
-    # )
+        correct_predictions = 0
+        running_sum = 0
 
-    # print(
-    #     "Average Reciprocal Hit Rank (Popular Items): ",
-    #     average_reciprocal_hit_rank(train_set_predictions, top_ten_popular_items),
-    #     )
+        for i, yp_item in enumerate(y_pred):
+            k = i + 1  # our rank starts at 1
 
-    def get_popular_items(self, grouped_df, df_items, N=20):
+            if yp_item in y_true:
+                correct_predictions += 1
+                running_sum += correct_predictions / k
+
+        return round(running_sum / len(y_true), 5)
+
+    def call_recommend(self, model, user_items, user_idx, N=20):
+        """
+        Call the recommend function to get the top N recommendations for a user
+        """
+        num_recomm = N
+        recommendations_raw = model.recommend(
+            user_idx, user_items[user_idx], N=num_recomm
+        )
+        predictions = recommendations_raw[0][
+            :num_recomm
+        ]  # these are the top n preditictions using the train set
+
+        return predictions
+
+    def get_popular_items(self, N=20):
         """
         Get popular items (to use as baseline)
         """
-        popular_items = grouped_df.ITEM_ID.value_counts(sort=True).keys()[:N]
+        popular_items = self.grouped_df.ITEM_ID.value_counts(sort=True).keys()[:N]
         top_N_popular_items = []
         for item in popular_items:
-            item_desc = df_items.PRODUCT_DESCRIPTION.loc[df_items.ITEM_ID == item].iloc[
-                0
-            ]
-            item_index = grouped_df.ITEM_IDX.loc[grouped_df.ITEM_ID == item].iloc[0]
-            print(f"Item ID: {item}, Desc: {item_desc}")
+            item_desc = self.df_items.PRODUCT_DESCRIPTION.loc[
+                self.df_items.ITEM_ID == item
+            ].iloc[0]
+            item_index = self.grouped_df.ITEM_IDX.loc[
+                self.grouped_df.ITEM_ID == item
+            ].iloc[0]
+            # print(f"Item ID: {item}, Desc: {item_desc}")
             top_N_popular_items.append(item_index)
         return top_N_popular_items
 
@@ -143,8 +147,10 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.AWS_DEFAULT_REGION = os.environ["AWS_DEFAULT_REGION"]
         self.BUCKET_NAME = os.environ["BUCKET_NAME"]
         self.FAKE_DATA_FOLDER = "fake_data"
-        self.USER_COUNT = 1000  # change to required count
-        self.INTERACTION_COUNT = 50000  # change to required count
+        self.USER_COUNT = 1000  # change to required, 10000 is recommended
+        self.INTERACTION_COUNT = (
+            50000  # change to required count, 650000 is recommended
+        )
 
         self.next(self.data_generation_users, self.data_generation_items)
 
@@ -287,6 +293,8 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         IF_BASEFILENAME = "interactions-confidence.csv"
         INTER_CONFIDENCE_FILENAME = f"./{self.FAKE_DATA_FOLDER}/{IF_BASEFILENAME}"
         grouped_df.to_csv(INTER_CONFIDENCE_FILENAME, index=False)
+        self.grouped_df = grouped_df
+        self.df_items = df_items
 
         session = boto3.Session(
             aws_access_key_id=self.AWS_ACCESS_KEY_ID,
@@ -347,7 +355,33 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             factors=factors, regularization=regularization, iterations=iterations
         )
         testing_model.fit((self.test_set * alpha).astype("double"))
+        user_indices = self.product_users_altered[:20]
+        top_n_popular_items = self.get_popular_items()
+        precision_records = []
+        precision_records_popular = []
 
+        for user_index in user_indices:
+            train_set_predictions = self.call_recommend(
+                training_model, self.training_set, user_index
+            )
+            test_set_predictions = self.call_recommend(
+                testing_model, self.test_set, user_index
+            )
+
+            precision_records.append(
+                self.average_precision_at_k(test_set_predictions, train_set_predictions)
+            )
+
+            precision_records_popular.append(
+                self.average_precision_at_k(test_set_predictions, top_n_popular_items)
+            )
+
+        print(
+            f"For top K({len(user_indices)}) recommendations, the average precision                 : {np.average(precision_records)}"
+        )
+        print(
+            f"For top K({len(user_indices)}) recommendations, the average precision (popular)       : {np.average(precision_records_popular)}"
+        )
         MODELS_FOLDER = "models"
         MODEL_PKL_FILENAME = (
             f"mf-recommender-{strftime('%Y-%m-%d-%H-%M-%S', gmtime())}.pkl"
