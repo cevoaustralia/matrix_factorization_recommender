@@ -377,10 +377,10 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             )
 
         print(
-            f"For top K({len(user_indices)}) recommendations, the average precision                 : {np.average(precision_records)}"
+            f"For top K({len(user_indices)}) recommendations, the average precision (this recsys)                : {np.average(precision_records)}"
         )
         print(
-            f"For top K({len(user_indices)}) recommendations, the average precision (popular)       : {np.average(precision_records_popular)}"
+            f"For top K({len(user_indices)}) recommendations, the average precision (popular items recsys)       : {np.average(precision_records_popular)}"
         )
         MODELS_FOLDER = "models"
         MODEL_PKL_FILENAME = (
