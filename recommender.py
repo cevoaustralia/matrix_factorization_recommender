@@ -140,6 +140,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         assert os.environ["AWS_SECRET_ACCESS_KEY"]
         assert os.environ["AWS_DEFAULT_REGION"]
         assert os.environ["BUCKET_NAME"]
+        assert os.environ["COMET_API_KEY"]
 
         self.AWS_ACCESS_KEY_ID = os.environ["AWS_ACCESS_KEY_ID"]
         self.AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
