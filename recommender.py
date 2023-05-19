@@ -1,9 +1,10 @@
 # pylint: disable=C0415,C0103,W0201,W0702,W0718
 import os
-from metaflow import FlowSpec, step, Parameter
+from metaflow import FlowSpec, step
 import random
 import numpy as np
 import json
+from comet_ml.integration.metaflow import comet_flow
 
 try:
     from dotenv import load_dotenv
@@ -13,6 +14,7 @@ except Exception:
     print("No dotenv package")
 
 
+@comet_flow(project_name="matrix-factorization-recommender")
 class MatrixFactorizationRecommenderPipeline(FlowSpec):
     """
     MatrixFactorizationRecommenderPipeline is an end-to-end flow for a Recommender
@@ -121,13 +123,9 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         popular_items = self.grouped_df.ITEM_ID.value_counts(sort=True).keys()[:N]
         top_N_popular_items = []
         for item in popular_items:
-            item_desc = self.df_items.PRODUCT_DESCRIPTION.loc[
-                self.df_items.ITEM_ID == item
-            ].iloc[0]
             item_index = self.grouped_df.ITEM_IDX.loc[
                 self.grouped_df.ITEM_ID == item
             ].iloc[0]
-            # print(f"Item ID: {item}, Desc: {item_desc}")
             top_N_popular_items.append(item_index)
         return top_N_popular_items
 
@@ -309,7 +307,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
 
         # sets of hyperparameters to try
         alphas = [50, 60]
-        factors = [100, 200]
+        factors = [40, 60]
         regularizations = [0.01, 0.1]
         iterations = [100, 150]
         grid_search = []
@@ -338,6 +336,12 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         # each copy of this step in the parallelization will have its own value
         self.hyper_string = self.input
         self.hypers = json.loads(self.hyper_string)
+        self.comet_experiment.log_parameter("ALPHA", self.hypers["ALPHA"])
+        self.comet_experiment.log_parameter("FACTOR", self.hypers["FACTOR"])
+        self.comet_experiment.log_parameter(
+            "REGULARIZATION", self.hypers["REGULARIZATION"]
+        )
+        self.comet_experiment.log_parameter("ITERATIONS", self.hypers["ITERATIONS"])
 
         # create the sparse user-item matrix for the implicit library
         sparse_person_content = sparse.csr_matrix(
@@ -402,6 +406,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             f"For top K({len(user_indices)}) recommendations, the average precision (popular items recsys)       : {np.average(precision_records_popular)}"
         )
         self.metrics = np.average(precision_records)
+        self.comet_experiment.log_metric("mean_precision_at_k", self.metrics)
         self.training_models = training_model
         print("Model Training...")
         self.next(self.join_runs)
@@ -427,11 +432,26 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         MODEL_IDX = 1
         KEY_IDX = 0
         VALUES_IDX = 1
-        self.best_selected_hypers = self.best_hypers[KEY_IDX]
+        self.best_selected_hypers = json.loads(self.best_hypers[KEY_IDX])
         self.best_selected_model = self.best_hypers[VALUES_IDX][MODEL_IDX]
         self.best_selected_metric = self.best_hypers[VALUES_IDX][METRIC_IDX]
         print(f"Best hyperparameters are: {self.best_selected_hypers}")
         print(f"\n\n====> Best metric is: {self.best_selected_metric}\n\n")
+
+        self.comet_experiment.log_parameter("ALPHA", self.best_selected_hypers["ALPHA"])
+        self.comet_experiment.log_parameter(
+            "FACTOR", self.best_selected_hypers["FACTOR"]
+        )
+        self.comet_experiment.log_parameter(
+            "REGULARIZATION", self.best_selected_hypers["REGULARIZATION"]
+        )
+        self.comet_experiment.log_parameter(
+            "ITERATIONS", self.best_selected_hypers["ITERATIONS"]
+        )
+
+        self.comet_experiment.log_metric(
+            "mean_precision_at_k", self.best_selected_metric
+        )
 
         MODELS_FOLDER = "models"
         MODEL_PKL_FILENAME = (
@@ -452,47 +472,6 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.upload_to_s3(
             session, MODEL_PKL_FILENAME, inputs[0].BUCKET_NAME, folder=MODELS_FOLDER
         )
-
-        self.next(self.create_sagemaker_model)
-
-    @step
-    def create_sagemaker_model(self):
-        """
-        Create SageMaker Model
-        """
-
-        self.next(self.create_sagemaker_endpoint_configuration)
-
-    @step
-    def create_sagemaker_endpoint_configuration(self):
-        """
-        Create SageMaker Endpoint Configuration
-        """
-
-        self.next(self.create_sagemaker_endpoint)
-
-    @step
-    def create_sagemaker_endpoint(self):
-        """
-        Create SageMaker Endpoint
-        """
-
-        self.next(self.perform_prediction)
-
-    @step
-    def perform_prediction(self):
-        """
-        Placeholder for performing prediction on the SageMaker Endpoint
-        """
-
-        self.next(self.delete_sagemaker_endpoint)
-
-    @step
-    def delete_sagemaker_endpoint(self):
-        """
-        Delete SageMaker Endpoint - you don't want that AWS bill, do you?
-        - after all that work, delete all to avoid a credit card bill :)
-        """
 
         self.next(self.end)
 
