@@ -29,5 +29,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ap-southeast-2
           BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
+          COMET_API_KEY: ${{ secrets.COMET_API_KEY }}
         run: |
           python 'recommender.py' run
