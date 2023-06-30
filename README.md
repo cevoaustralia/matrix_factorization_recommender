@@ -1,7 +1,7 @@
 ## Matrix Factorization Recommender
-This repo contains End to end ML recommender using Matrix Factorization
+This repo contains code to generate data and train an ML recommender using a Matrix Factorization library called [implicit](https://github.com/benfred/implicit)
 
-- we have identified that we can leverage the Alternating Least Squares (ALS) algorithhm to build this recommender system as described in the paper [Collaborative Filtering for Implicit Feedback Datasets](http://yifanhu.net/PUB/cf.pdf).
+- we have identified that we can leverage the Alternating Least Squares (ALS) algorithm to build this recommender system as described in the paper [Collaborative Filtering for Implicit Feedback Datasets](http://yifanhu.net/PUB/cf.pdf).
 
 - We will generate our own dataset similar to the method used in [Cevo Shopping Demo](https://github.com/cevoaustralia/cevo-shopping-demo)
 
@@ -9,9 +9,7 @@ This repo contains End to end ML recommender using Matrix Factorization
 
 - There is a python library called [implicit](https://github.com/benfred/implicit) which implements this algorithm as defined in the paper. We will use this library instead of implementing the algorithm from scratch.
 
-- We will implement the **offline training-offline serving** pattern, this is with the assumption that the users and items are not changing that frequently. This will relax the training and inference requirements, so that we can take advantage of batch processing and caching, meaning our API can operate at massive scale.
-
-- It is offline serving so that we don't have to use state of the art models that may be expensive to run. We will be hosting the API in a serverless offering, as it reads the user predictions off a fast storage like DynamoDB.
+- This model is online serving (meaning that the predictions are done in real time), and because we are hosting this model in a serverless in AWS Lambda, it may not be grunty enough for a larger dataset.
 
 - MLOps pipeline will take care of model building, hyperparameter tuning, model evaluation, model serving and monitoring. We will use <insert your tool choice> for this.
 
