@@ -416,7 +416,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             f"For top K({len(user_indices)}) recommendations, the mean average precision (this recsys)                : {np.average(precision_records)}"
         )
         print(
-            f"For top K({len(user_indices)}) recommendations, the mean clearaverage precision (popular items recsys)       : {np.average(precision_records_popular)}"
+            f"For top K({len(user_indices)}) recommendations, the mean average precision (popular items recsys)       : {np.average(precision_records_popular)}"
         )
         self.metrics = np.average(precision_records)
         self.comet_experiment.log_metric("mean_precision_at_k", self.metrics)
