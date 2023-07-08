@@ -11,16 +11,14 @@ This repo contains code to generate data and train an ML recommender using a Mat
 
 - This model is online serving (meaning that the predictions are done in real time), and because we are hosting this model in a serverless in AWS Lambda, it may not be grunty enough for a larger dataset.
 
-- MLOps pipeline will take care of model building, hyperparameter tuning, model evaluation, model serving and monitoring. We will use <insert your tool choice> for this.
+- The MLOps pipeline, we're using Metaflow in this project, will take care of model building, hyperparameter tuning, model evaluation, then model serving. We will deploy the model in a Lambda function, and we will use the API Gateway to expose the model as an API endpoint.
 
 ## Tech Stack
 - GitHub Actions
 - Metaflow
 - AWS S3
 - Comet ML for experiment tracking
-- SAM
-- FastAPI
-- DynamoDB
+- SAM for Lambda deployment
 - GridSearch CV (or manual grid search)
 - Model Registry (?)
 - Feature Store (?)

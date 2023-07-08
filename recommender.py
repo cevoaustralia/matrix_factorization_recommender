@@ -37,7 +37,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         """
         Create the train-test split in preparation for model training and evaluation
             - sparse_matrix: our original sparse user-item matrix
-            - pct_test: the percentage of randomly chosen user-item interactions to mask in the training set
+            - pct_test: the percentage of randomly chosen user-item interactions to mask for the training set
                 this defaults to 20 percent of the sparse matrix
         """
         test_set = (
@@ -45,7 +45,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         )  # Make a copy of the original set to be the test set.
         training_set = (
             sparse_matrix.copy()
-        )  # Make a copy of the original data we can alter as our training set.
+        )  # Make a copy of the original data we can add masking as our training set.
         nonzero_inds = (
             training_set.nonzero()
         )  # Find the indices in the ratings data where an interaction exists
@@ -76,12 +76,12 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             user_inds,
         )  # Output the unique list of user indices which were altered
 
-    def average_precision_at_k(self, y_true, y_pred, k_max=0):
+    def average_precision_at_k(self, y_actual, y_pred, k_max=0):
         """
         Average Precision at k calculation
         """
         # Check if all elements in lists are unique
-        if len(set(y_true)) != len(y_true):
+        if len(set(y_actual)) != len(y_actual):
             raise ValueError("Values in y_true are not unique")
 
         if len(set(y_pred)) != len(y_pred):
@@ -90,17 +90,18 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         if k_max != 0:
             y_pred = y_pred[:k_max]
 
-        correct_predictions = 0
+        num_relevant_items = 0
         running_sum = 0
 
         for i, yp_item in enumerate(y_pred):
-            k = i + 1  # our rank starts at 1
+            k = i + 1  # rank is 1-indexed
 
-            if yp_item in y_true:
-                correct_predictions += 1
-                running_sum += correct_predictions / k
-
-        return round(running_sum / len(y_true), 5)
+            if yp_item in y_actual:  # check if this item is in actual list
+                num_relevant_items += 1
+                running_sum += num_relevant_items / k
+        return (
+            0 if num_relevant_items == 0 else round(running_sum / num_relevant_items, 5)
+        )
 
     def call_recommend(self, model, user_items, user_idx, N=20):
         """
@@ -134,22 +135,20 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         """
         Initialization, place everything init related here, check that everything is
         in order like environment variables, connection strings, etc, and if there are
-        any issues, fail fast here, now.
+        any issues, quit now.
         """
-        assert os.environ["AWS_ACCESS_KEY_ID"]
-        assert os.environ["AWS_SECRET_ACCESS_KEY"]
+        assert os.environ["AWS_PROFILE_NAME"]
         assert os.environ["AWS_DEFAULT_REGION"]
         assert os.environ["BUCKET_NAME"]
         assert os.environ["COMET_API_KEY"]
 
-        self.AWS_ACCESS_KEY_ID = os.environ["AWS_ACCESS_KEY_ID"]
-        self.AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
+        self.AWS_PROFILE_NAME = os.environ["AWS_PROFILE_NAME"]
         self.AWS_DEFAULT_REGION = os.environ["AWS_DEFAULT_REGION"]
         self.BUCKET_NAME = os.environ["BUCKET_NAME"]
         self.FAKE_DATA_FOLDER = "fake_data"
-        self.USER_COUNT = 1000  # change to required, 10000 is recommended
+        self.USER_COUNT = 1000  # change to required, 10000 is recommended (1000)
         self.INTERACTION_COUNT = (
-            50000  # change to required count, 650000 is recommended
+            50000  # change to required count, 650000 is recommended (50000)
         )
 
         self.next(self.data_generation_users, self.data_generation_items)
@@ -157,7 +156,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
     @step
     def data_generation_users(self):
         """
-        Users Data Generation
+        Users data generation - generate fake users data and upload to S3
         """
         import generators.UsersGenerator as users
         import boto3
@@ -174,8 +173,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         users_filename = "users.csv"
 
         session = boto3.Session(
-            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
+            profile_name=self.AWS_PROFILE_NAME,
             region_name=self.AWS_DEFAULT_REGION,
         )
 
@@ -186,14 +184,12 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
     @step
     def data_generation_items(self):
         """
-        Items Data Generation
+        Items data generation - generate fake items data and upload to S3
         """
         import generators.ItemsGenerator as items
         import boto3
 
         IN_PRODUCTS_FILENAME = "./generators/products.yaml"
-
-        # This is where stage.sh will pick them up from
         ITEMS_FILENAME = "items.csv"
         OUT_ITEMS_FILENAME = f"./{self.FAKE_DATA_FOLDER}/{ITEMS_FILENAME}"
 
@@ -205,8 +201,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.products_df = itemGenerator.generate()
 
         session = boto3.Session(
-            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
+            profile_name=self.AWS_PROFILE_NAME,
             region_name=self.AWS_DEFAULT_REGION,
         )
 
@@ -217,9 +212,8 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
     @step
     def data_generation_interactions(self, inputs):
         """
-        This is a Join Metaflow step
-        Performed after generating users and items data
-        Interactions Data Generation
+        This is a join Metaflow step performed after generating users and items data
+        then this generates user-item interactions data and uploads to S3
         """
         import generators.InteractionsGenerator as interactions
         import boto3
@@ -237,8 +231,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         interactionsGenerator.generate()
 
         session = boto3.Session(
-            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
+            profile_name=self.AWS_PROFILE_NAME,
             region_name=self.AWS_DEFAULT_REGION,
         )
 
@@ -250,11 +243,10 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
     @step
     def data_transformation(self):
         """
-        Data Transformation
+        Data transformation - shape data and add confidence scores for each event type
         """
         import pandas as pd
         import boto3
-        import itertools
 
         df = pd.read_csv(f"./{self.FAKE_DATA_FOLDER}/interactions.csv")
         df_items = pd.read_csv(f"./{self.FAKE_DATA_FOLDER}/items.csv")
@@ -262,7 +254,8 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         # drop columns which we don't need
         df = df.drop(["TIMESTAMP", "DISCOUNT"], axis=1)
 
-        # add confidence scores
+        # add confidence scores, where 1 is the lowest and 5 is the highest,
+        # eg. viewing product pages shows less affinity than an actual product purchase
         event_type_confidence = {
             "View": 1.0,
             "AddToCart": 2.0,
@@ -274,17 +267,15 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         # add confidence scores based on the event type defeind above
         df["CONFIDENCE"] = df["EVENT_TYPE"].apply(lambda x: event_type_confidence[x])
 
-        # this removes duplicates and adds up the confidence => down lower number of unique user-item interactions + confidence
+        # this removes duplicates and adds up the confidence => this produces a lower number
+        # of unique user-item interactions which now includes confidence
         grouped_df = df.groupby(["ITEM_ID", "USER_ID"]).sum("CONFIDENCE").reset_index()
-        grouped_df = grouped_df[
-            ["USER_ID", "ITEM_ID", "CONFIDENCE"]
-        ]  # re-order columns
 
         # prepare for training
         grouped_df["USER_ID"] = grouped_df["USER_ID"].astype("category")
         grouped_df["ITEM_ID"] = grouped_df["ITEM_ID"].astype("category")
         print(f"Number of unique users: {grouped_df['USER_ID'].nunique()}")
-        print(f"Number of unique items: {grouped_df.ITEM_ID.nunique()}")
+        print(f"Number of unique items: {grouped_df['ITEM_ID'].nunique()}")
         grouped_df["USER_IDX"] = grouped_df["USER_ID"].cat.codes
         grouped_df["ITEM_IDX"] = grouped_df["ITEM_ID"].cat.codes
         print(f"Min value user index: {grouped_df['USER_IDX'].min()}")
@@ -293,25 +284,38 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         print(f"Max value item index: {grouped_df['ITEM_IDX'].max()}")
         IF_BASEFILENAME = "interactions-confidence.csv"
         INTER_CONFIDENCE_FILENAME = f"./{self.FAKE_DATA_FOLDER}/{IF_BASEFILENAME}"
+
+        grouped_df = grouped_df[
+            ["USER_ID", "USER_IDX", "ITEM_ID", "ITEM_IDX", "CONFIDENCE"]
+        ]  # re-order columns
         grouped_df.to_csv(INTER_CONFIDENCE_FILENAME, index=False)
         self.grouped_df = grouped_df
         self.df_items = df_items
 
         session = boto3.Session(
-            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
+            profile_name=self.AWS_PROFILE_NAME,
             region_name=self.AWS_DEFAULT_REGION,
         )
 
         self.upload_to_s3(session, IF_BASEFILENAME, self.BUCKET_NAME)
         print("Data Transformation...")
 
+        self.next(self.create_hyper_search_space)
+
+    @step
+    def create_hyper_search_space(self):
+        """
+        Prepare data for training by creating our hyperparameter search space
+        """
+        import itertools
+
         # sets of hyperparameters to try
-        alphas = [50, 60]
-        factors = [40, 60]
-        regularizations = [0.01, 0.1]
-        iterations = [100, 150]
+        alphas = [1]  # [1, 10]
+        factors = [100, 200]  # [100, 200]
+        regularizations = [0.01]  # [0.01, 0.1]
+        iterations = [50]  # [50, 100]
         grid_search = []
+        # create a grid search of hyperparameters speficied above
         for params in itertools.product(alphas, factors, regularizations, iterations):
             grid_search.append(
                 {
@@ -323,12 +327,17 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             )
         # we serialize hypers to a string and pass them to the foreach below
         self.hypers_sets = [json.dumps(_) for _ in grid_search]
+        print(self.hypers_sets)
         self.next(self.model_training, foreach="hypers_sets")
 
     @step
     def model_training(self):
         """
-        Model training
+        Model training using Implicit ALS algorithm and evaluates the model using mean_precision_at_k
+        This is also a foreach step which will run in parallel for each hyperparameter set
+        The model training dataset is based on the original sparse matrix but has 20% of data masked,
+        while the model testing dataset is a copy of the original sparse matrix.
+        Model evaluation is done using the models generated by both datasets.
         """
         from scipy import sparse
         import implicit
@@ -345,7 +354,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.comet_experiment.log_parameter("ITERATIONS", self.hypers["ITERATIONS"])
 
         # create the sparse user-item matrix for the implicit library
-        sparse_person_content = sparse.csr_matrix(
+        sparse_user_item = sparse.csr_matrix(
             (
                 self.grouped_df["CONFIDENCE"].astype(float),
                 (self.grouped_df["USER_IDX"], self.grouped_df["ITEM_IDX"]),
@@ -356,9 +365,9 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
             self.training_set,
             self.test_set,
             self.product_users_altered,
-        ) = self.make_train_test_split(sparse_person_content)
+        ) = self.make_train_test_split(sparse_user_item)
 
-        # todo: add hyperparameter tuning for alpha, factors, regularization, iterations
+        # hyperparameter tuning...
         alpha = self.hypers["ALPHA"]
         factors = self.hypers["FACTOR"]
         regularization = self.hypers["REGULARIZATION"]
@@ -384,6 +393,8 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         precision_records_popular = []
 
         print(f"Model training hypers: {self.hypers}")
+        # Recommend products to the first 20 users in the training and test set
+        # and calculate the average precision for both models
         for user_index in user_indices:
             train_set_predictions = self.call_recommend(
                 training_model, self.training_set, user_index
@@ -400,11 +411,12 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
                 self.average_precision_at_k(test_set_predictions, top_n_popular_items)
             )
 
+        # now get the aggregate precision for both training and test models
         print(
-            f"For top K({len(user_indices)}) recommendations, the average precision (this recsys)                : {np.average(precision_records)}"
+            f"For top K({len(user_indices)}) recommendations, the mean average precision (this recsys)                : {np.average(precision_records)}"
         )
         print(
-            f"For top K({len(user_indices)}) recommendations, the average precision (popular items recsys)       : {np.average(precision_records_popular)}"
+            f"For top K({len(user_indices)}) recommendations, the mean clearaverage precision (popular items recsys)       : {np.average(precision_records_popular)}"
         )
         self.metrics = np.average(precision_records)
         self.comet_experiment.log_metric("mean_precision_at_k", self.metrics)
@@ -415,7 +427,8 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
     @step
     def join_runs(self, inputs):
         """
-        Join the parallel runs
+        Join the parallel model training runs, and pickle the model that has the best hyperparameters,
+        saves it to s3, then finally registers it to the model registry
         """
         import pickle
         from time import gmtime, strftime
@@ -465,14 +478,15 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         )
 
         session = boto3.Session(
-            aws_access_key_id=inputs[0].AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=inputs[0].AWS_SECRET_ACCESS_KEY,
+            profile_name=inputs[0].AWS_PROFILE_NAME,
             region_name=inputs[0].AWS_DEFAULT_REGION,
         )
 
         self.upload_to_s3(
             session, MODEL_PKL_FILENAME, inputs[0].BUCKET_NAME, folder=MODELS_FOLDER
         )
+
+        # TODO: log_model in comet at this point
 
         self.next(self.end)
 

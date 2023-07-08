@@ -35,14 +35,7 @@ def get_popular_items(grouped_df, N=20):
 
 grouped_df = get_s3_to_df("interactions-confidence.csv")
 items_df = get_s3_to_df("items.csv")
-print(f"Grouped df: {grouped_df.head()}")
-item_indices = get_popular_items(grouped_df)
-
 data = []
-
-# set this flag accordingly to use recommender or not
-use_mf_recommender = True  # matrix factorization
-# personalizeRuntime = boto3.client("personalize-runtime")
 
 
 def get_item_details(item_indices):
@@ -110,61 +103,33 @@ def lambda_handler(event, context):
     print("received event:")
     print(event)
 
-    # iterate data and update image property
-    # basedir = "https://cevo-shopping-demo.s3.ap-southeast-2.amazonaws.com/dataset/images/images"
-    # top_n_data = []
-    # for product in data:
-    #     product["installments"] = 4
-    #     product["image"] = (
-    #         product["image"]
-    #         if "http" in product["image"]
-    #         else f"{basedir}/{product['category']}/{product['image']}"
-    #     )
-
     if event["queryStringParameters"] is not None:
         if event["queryStringParameters"]["user_id"]:
-            if use_mf_recommender:
-                print("Calling matrix factorization recommender...4")
-                sparse_person_content = sparse.csr_matrix(
-                    (
-                        grouped_df["CONFIDENCE"].astype(float),
-                        (grouped_df["USER_IDX"], grouped_df["ITEM_IDX"]),
-                    )
+            print("Calling matrix factorization recommender...")
+            sparse_user_item = sparse.csr_matrix(
+                (
+                    grouped_df["CONFIDENCE"].astype(float),
+                    (grouped_df["USER_IDX"], grouped_df["ITEM_IDX"]),
                 )
-                model = pickle.load(
-                    get_model_from_s3("mf-recommender-2023-05-19-06-01-53.pkl")
-                )
-                item_indices = call_recommend(
-                    model,
-                    sparse_person_content,
-                    int(event["queryStringParameters"]["user_id"]) - 1,
-                    N=20,
-                )  # try user index 34
-                print(f"item_indices: {item_indices}")
-                filteredData = get_item_details(item_indices)
-                top_n_data = filteredData[:20]
-            else:
-                print("Calling default....")
-                filteredData = data  # Not using recommender
-                top_n_data = filteredData[:20]
-        else:
-            categoryFilter = event["queryStringParameters"]["filters"]
-            filteredData = [x for x in data if x["category"] == categoryFilter]
-            print(
-                f"Type of categoryFilter: {type(categoryFilter)}, contents: {categoryFilter}."
             )
-            top_n_data = filteredData[:30]
-    else:
-        if use_mf_recommender:
-            print("Calling matrix factorization recommender..3")
-            item_indices = get_popular_items(grouped_df)
-            items = get_item_details(item_indices)
-            top_n_data = items[:20]
-        else:
-            print("Calling default...")
-            filteredData = data
+            model = pickle.load(
+                get_model_from_s3("mf-recommender-2023-07-02-15-29-05.pkl")
+            )
+            item_indices = call_recommend(
+                model,
+                sparse_user_item,
+                int(event["queryStringParameters"]["user_id"])
+                - 1,  # user index starts from 0
+                N=20,
+            )
+            print(f"item_indices: {item_indices}")
+            filteredData = get_item_details(item_indices)
             top_n_data = filteredData[:20]
-
+    else:
+        print("Just returning popular items...")
+        item_indices = get_popular_items(grouped_df)
+        items = get_item_details(item_indices)
+        top_n_data = items[:20]
     return {
         "statusCode": 200,
         "headers": {
