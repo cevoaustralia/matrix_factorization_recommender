@@ -113,7 +113,7 @@ def lambda_handler(event, context):
                 )
             )
             model = pickle.load(
-                get_model_from_s3("mf-recommender-2023-07-02-15-29-05.pkl")
+                get_model_from_s3("mf-recommender-2023-07-09-12-25-43.pkl")
             )
             item_indices = call_recommend(
                 model,

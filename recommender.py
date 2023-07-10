@@ -146,7 +146,7 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.AWS_DEFAULT_REGION = os.environ["AWS_DEFAULT_REGION"]
         self.BUCKET_NAME = os.environ["BUCKET_NAME"]
         self.FAKE_DATA_FOLDER = "fake_data"
-        self.USER_COUNT = 1000  # change to required, 10000 is recommended (1000)
+        self.USER_COUNT = 10000  # change to required, 10000 is recommended (1000)
         self.INTERACTION_COUNT = (
             50000  # change to required count, 650000 is recommended (50000)
         )
@@ -311,9 +311,9 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
 
         # sets of hyperparameters to try
         alphas = [1]  # [1, 10]
-        factors = [100, 200]  # [100, 200]
+        factors = [200]  # [100, 200]
         regularizations = [0.01]  # [0.01, 0.1]
-        iterations = [50]  # [50, 100]
+        iterations = [100]  # [50, 100]
         grid_search = []
         # create a grid search of hyperparameters speficied above
         for params in itertools.product(alphas, factors, regularizations, iterations):
@@ -485,8 +485,8 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         self.upload_to_s3(
             session, MODEL_PKL_FILENAME, inputs[0].BUCKET_NAME, folder=MODELS_FOLDER
         )
-
-        # TODO: log_model in comet at this point
+        print("Get current working directory : ", os.getcwd())
+        self.comet_experiment.log_model("mf-recommender", f"./{MODEL_PKL_FILENAME}")
 
         self.next(self.end)
 
