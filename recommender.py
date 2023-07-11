@@ -488,6 +488,14 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         print("Get current working directory : ", os.getcwd())
         self.comet_experiment.log_model("mf-recommender", f"./{MODEL_PKL_FILENAME}")
 
+        self.next(self.deploy_best_model)
+
+    @step
+    def deploy_best_model(self):
+        """
+        Deploy the best model to AWS Lambda using SAM CLI
+        TODO: please complete me
+        """
         self.next(self.end)
 
     @step

@@ -6,3 +6,4 @@
 /fake_data/*.gz
 .ipynb_checkpoints
 *.pkl
+.DS_Store
