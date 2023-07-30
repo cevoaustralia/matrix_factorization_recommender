@@ -5,6 +5,5 @@ To deploy the SAM-based Lambda, login with your SSO credentials with the followi
 
 Then deploy the SAM-based Lambda with the following command (your profile name will be different too):
 
-`sam deploy --region ap-southeast-2 --profile Cevo-Dev.AWSFullAccountAdmin --no-confirm-changeset`
-
+`sam build && sam deploy --region ap-southeast-2 --profile Cevo-Dev.AWSFullAccountAdmin --no-confirm-changeset --parameter-overrides 'ParameterKey=BestModel,ParameterValue=mf-recommender-2023-07-09-12-25-43.pkl'`
 

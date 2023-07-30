@@ -1,3 +1,4 @@
+import os
 import json
 import boto3
 import pandas as pd
@@ -23,6 +24,13 @@ def get_model_from_s3(filename):
     return io.BytesIO(body)
 
 
+pickled_model = os.environ["BEST_MODEL"]
+model = pickle.load(get_model_from_s3(pickled_model))
+grouped_df = get_s3_to_df("interactions-confidence.csv")
+items_df = get_s3_to_df("items.csv")
+data = []
+
+
 def get_popular_items(grouped_df, N=20):
     """
     Get popular items (to use as baseline)
@@ -33,11 +41,6 @@ def get_popular_items(grouped_df, N=20):
         item_index = grouped_df.ITEM_IDX.loc[grouped_df.ITEM_ID == item].iloc[0]
         top_N_popular_items.append(item_index)
     return top_N_popular_items
-
-
-grouped_df = get_s3_to_df("interactions-confidence.csv")
-items_df = get_s3_to_df("items.csv")
-data = []
 
 
 def get_item_details(item_indices):
@@ -113,11 +116,7 @@ def lambda_handler(event, context):
                     (grouped_df["USER_IDX"], grouped_df["ITEM_IDX"]),
                 )
             )
-            # todo: get the selected model from our model registry
-            # and not hardcode the name here
-            model = pickle.load(
-                get_model_from_s3("mf-recommender-2023-07-09-12-25-43.pkl")
-            )
+
             user_index = (
                 int(event["queryStringParameters"]["user_id"]) - 1
             )  # user index is just user id less 1

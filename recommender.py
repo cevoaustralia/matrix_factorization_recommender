@@ -468,13 +468,13 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         )
 
         MODELS_FOLDER = "models"
-        MODEL_PKL_FILENAME = (
+        self.MODEL_PKL_FILENAME = (
             f"mf-recommender-{strftime('%Y-%m-%d-%H-%M-%S', gmtime())}.pkl"
         )
         # only save the training model, don't bother with the testing model as that is just for evaluation
         pickle.dump(
             self.best_selected_model,
-            open(f"./{MODELS_FOLDER}/{MODEL_PKL_FILENAME}", "wb"),
+            open(f"./{MODELS_FOLDER}/{self.MODEL_PKL_FILENAME}", "wb"),
         )
 
         session = boto3.Session(
@@ -483,10 +483,15 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
         )
 
         self.upload_to_s3(
-            session, MODEL_PKL_FILENAME, inputs[0].BUCKET_NAME, folder=MODELS_FOLDER
+            session,
+            self.MODEL_PKL_FILENAME,
+            inputs[0].BUCKET_NAME,
+            folder=MODELS_FOLDER,
         )
         print("Get current working directory : ", os.getcwd())
-        self.comet_experiment.log_model("mf-recommender", f"./{MODEL_PKL_FILENAME}")
+        self.comet_experiment.log_model(
+            "mf-recommender", f"./{self.MODEL_PKL_FILENAME}"
+        )
 
         self.next(self.deploy_best_model)
 
@@ -494,8 +499,20 @@ class MatrixFactorizationRecommenderPipeline(FlowSpec):
     def deploy_best_model(self):
         """
         Deploy the best model to AWS Lambda using SAM CLI
-        TODO: please complete me
         """
+        try:
+            AWS_REGION = "ap-southeast-2"
+            BASE_PATH = "sam"
+            PROFILE_NAME = "Cevo-Dev.AWSFullAccountAdmin"
+            BEST_MODEL = self.MODEL_PKL_FILENAME
+
+            sam_command = f"cd {BASE_PATH} && sam build && sam deploy --region {AWS_REGION} --profile {PROFILE_NAME} --no-confirm-changeset --parameter-overrides 'ParameterKey=BestModel,ParameterValue={BEST_MODEL}'"
+            print(sam_command)
+            os.system(sam_command)
+
+        except Exception as e_xc:
+            print(str(e_xc))
+            exit(1)
         self.next(self.end)
 
     @step

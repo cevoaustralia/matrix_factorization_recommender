@@ -11,6 +11,11 @@ Globals:
     Timeout: 3
     MemorySize: 128
 
+Parameters:
+  BestModel:
+    Type: String
+    Default: ModelBest.pkl
+
 Resources:
   ImplicitGetProductsFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
@@ -29,6 +34,9 @@ Resources:
           Properties:
             Path: /products
             Method: get
+      Environment:
+        Variables:
+          BEST_MODEL: !Ref BestModel
     Metadata:
       Dockerfile: Dockerfile
       DockerContext: ./get_products
